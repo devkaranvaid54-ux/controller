@@ -14,9 +14,9 @@ import android.view.WindowManager
 class MainActivity : Activity() {
     private var hid: BluetoothHidDevice? = null
     private var host: BluetoothDevice? = null
+    private var tries = 0
     private lateinit var pad: ControllerView
 
-    // Standard HID gamepad: 16 buttons + X, Y, Z, Rz axes (left stick, right stick)
     private val desc = intArrayOf(
         0x05,0x01,0x09,0x05,0xA1,0x01,0x85,0x01,
         0x05,0x09,0x19,0x01,0x29,0x10,0x15,0x00,0x25,0x01,0x75,0x01,0x95,0x10,0x81,0x02,
@@ -39,6 +39,14 @@ class MainActivity : Activity() {
 
     override fun onRequestPermissionsResult(c: Int, p: Array<out String>, r: IntArray) { start() }
 
+    override fun onDestroy() {
+        try {
+            hid?.unregisterApp()
+            getSystemService(BluetoothManager::class.java).adapter.closeProfileProxy(BluetoothProfile.HID_DEVICE, hid)
+        } catch (e: Exception) {}
+        super.onDestroy()
+    }
+
     private fun start() {
         val ad = getSystemService(BluetoothManager::class.java).adapter
         ad.getProfileProxy(this, object : BluetoothProfile.ServiceListener {
@@ -51,7 +59,14 @@ class MainActivity : Activity() {
         val sdp = BluetoothHidDeviceAppSdpSettings("Genshin Pad", "Touch gamepad", "GenshinPad", 0x08.toByte(), desc)
         hid?.registerApp(sdp, null, null, mainExecutor, object : BluetoothHidDevice.Callback() {
             override fun onAppStatusChanged(d: BluetoothDevice?, registered: Boolean) {
-                runOnUiThread { pad.status = if (registered) "Tap Connect" else "Not ready" ; pad.invalidate() }
+                runOnUiThread {
+                    if (registered) { tries = 0; pad.status = "Tap Connect" }
+                    else {
+                        pad.status = "Not ready"
+                        if (tries++ < 3) pad.postDelayed({ hid?.unregisterApp(); pad.postDelayed({ register() }, 700) }, 700)
+                    }
+                    pad.invalidate()
+                }
             }
             override fun onConnectionStateChanged(d: BluetoothDevice?, state: Int) {
                 runOnUiThread {
